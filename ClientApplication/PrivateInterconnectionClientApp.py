@@ -8,7 +8,6 @@ ipSrc = ''
 mac = ''
 pingCmd = "ping -c1 "+ipDest
 output = commands.getoutput(pingCmd)
-print output
 words = commands.getoutput("ifconfig").split()
 for line in words:
   if "HWaddr" in line:
@@ -19,7 +18,7 @@ for line in words:
 
 s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
 port = 12345
-s.connect(('192.168.1.4', port))
+s.connect(('192.168.1.10', port))
 
 s.sendall(ipSrc +' ' + ipDest + '\n')
 print s.recv(1024)
