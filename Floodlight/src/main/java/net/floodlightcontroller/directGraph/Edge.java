@@ -11,6 +11,7 @@ public class Edge
 	private int m_capacity;
 	private int m_flow;
 	private short m_sourcePort;
+	private short m_destPort;
 	private boolean m_isUpdate;
 	private boolean m_isRuleInstalled;
 
@@ -21,9 +22,9 @@ public class Edge
 	 * @param to
 	 *          the ending vertex
 	 */
-	public Edge(Vertex from, Vertex to,short sourcePort) 
+	public Edge(Vertex from, Vertex to,short sourcePort,short destPort) 
 	{
-		this(from, to, 0,sourcePort);
+		this(from, to, 0,sourcePort,destPort);
 	}
 
 	/**
@@ -36,7 +37,7 @@ public class Edge
 	 * @param cost
 	 *          the cost of the edge
 	 */
-	public Edge(Vertex from, Vertex to, int capacity,short sourcePort) 
+	public Edge(Vertex from, Vertex to, int capacity,short sourcePort, short destPort) 
 	{
 		m_from = from;
 		m_to = to;
@@ -44,6 +45,7 @@ public class Edge
 		m_isUpdate = false;
 		m_flow =0;
 		m_sourcePort = sourcePort;
+		m_destPort = destPort;
 		m_isRuleInstalled = false;
 	}
 
@@ -85,6 +87,11 @@ public class Edge
 	public short getSourcePort()
 	{
 		return m_sourcePort;
+	}
+	
+	public short getDestPort()
+	{
+		return m_destPort;
 	}
 	
 	public boolean getIsRuleInstalled()

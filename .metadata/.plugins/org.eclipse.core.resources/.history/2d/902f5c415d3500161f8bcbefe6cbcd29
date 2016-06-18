@@ -19,6 +19,7 @@ public class AdminServer implements Runnable
 		try 
 		{
 			serverSocket = new ServerSocket(port);
+			//serverSocket.setSoTimeout(5000000);
 			this.callback = callback;
 
 		} 

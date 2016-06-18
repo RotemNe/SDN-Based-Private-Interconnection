@@ -202,7 +202,7 @@ public class DirectGraph
 	 * @throws IllegalArgumentException
 	 *             if from/to are not vertices in the graph
 	 */
-	public boolean addEdge(Vertex from, Vertex to, int capacity,short sourcePort) throws IllegalArgumentException 
+	public boolean addEdge(Vertex from, Vertex to, int capacity,short sourcePort,short destPort) throws IllegalArgumentException 
 	{
 		if (m_vertices.containsValue(from) == false)
 		{
@@ -211,7 +211,7 @@ public class DirectGraph
 		if (m_vertices.containsValue(to) == false) {
 			throw new IllegalArgumentException("to is not in graph");
 		}
-		Edge e = new Edge(from, to, capacity,sourcePort);
+		Edge e = new Edge(from, to, capacity,sourcePort,destPort);
 		return addEdge(e);
 	}
 
@@ -231,7 +231,7 @@ public class DirectGraph
 	 * @throws IllegalArgumentException
 	 *             if from/to are not vertices in the graph
 	 */
-	public boolean addEdge(String fromVertexName, String toVertexName, int capacity,short sourcePort)
+	public boolean addEdge(String fromVertexName, String toVertexName, int capacity,short sourcePort,short destPort)
 	{
 		Vertex from;
 		Vertex to;
@@ -246,7 +246,7 @@ public class DirectGraph
 		from = m_vertices.get(fromVertexName);
 		to = m_vertices.get(toVertexName);
 
-		Edge e = new Edge(from, to, capacity,sourcePort);
+		Edge e = new Edge(from, to, capacity,sourcePort,destPort);
 		return addEdge(e);
 	}
 
@@ -479,6 +479,7 @@ public class DirectGraph
 		String from,to,origTo,origFrom;
 		Vertex fromVer,toVer;
 		short sourcePort;
+		short destPort;
 		Edge edge;
 		clearUpdates();
 
@@ -492,13 +493,14 @@ public class DirectGraph
 			from = e.getFrom().getName();
 			to = e.getTo().getName();
 			sourcePort = e.getSourcePort();
+			destPort = e.getDestPort();
 
 			if(needUpdate(from, to,source,target) && (!e.isUpdate()))
 			{
 				if(from == source || from == target)				
 				{	
 					origTo = to.substring(0,to.indexOf('.'));
-					edge = new Edge(fromVer, getVertex(origTo), Capacity, sourcePort);
+					edge = new Edge(fromVer, getVertex(origTo), Capacity, sourcePort,destPort);
 					edge.setFlow(e.getFlow());
 					edgesToAdd.add(edge);
 
@@ -506,7 +508,7 @@ public class DirectGraph
 				else if(to == source || to == target)
 				{
 					origFrom = from.substring(0,from.indexOf('.'));
-					edge = new Edge(getVertex(origFrom), toVer, Capacity, sourcePort);
+					edge = new Edge(getVertex(origFrom), toVer, Capacity, sourcePort,destPort);
 					edge.setFlow(e.getFlow());
 					edgesToAdd.add(edge);
 				}
@@ -516,7 +518,7 @@ public class DirectGraph
 					origFrom = from.substring(0,from.indexOf('.'));
 					if(!(origTo.equals(origFrom)))
 					{
-						edge = new Edge(getVertex(origFrom),getVertex(origTo),Capacity,sourcePort);
+						edge = new Edge(getVertex(origFrom),getVertex(origTo),Capacity,sourcePort,destPort);
 						edge.setFlow(e.getFlow());
 						edgesToAdd.add(edge);
 					}
@@ -572,6 +574,7 @@ public class DirectGraph
 		String from,to;
 		Vertex fromVer,toVer;
 		short sourcePort;
+		short destPort;
 		clearUpdates();
 		expandVertices(source,target);
 
@@ -585,21 +588,22 @@ public class DirectGraph
 			from = e.getFrom().getName();
 			to = e.getTo().getName();
 			sourcePort = e.getSourcePort();
+			destPort = e.getDestPort();
 
 			if(needUpdate(from, to,source,target) && (!e.isUpdate()))
 			{
 				if(from == source || from == target)
 				{	
-					edgesToAdd.add(new Edge(fromVer,getVertex( to + ExpendSuffix_1), Capacity, sourcePort));
+					edgesToAdd.add(new Edge(fromVer,getVertex( to + ExpendSuffix_1), Capacity, sourcePort,destPort));
 	
 				}
 				else if(to == source || to == target)
 				{
-					edgesToAdd.add(new Edge(getVertex(from + ExpendSuffix_2), toVer, Capacity, sourcePort));
+					edgesToAdd.add(new Edge(getVertex(from + ExpendSuffix_2), toVer, Capacity, sourcePort,destPort));
 				}
 				else
 				{
-					edgesToAdd.add(new Edge(getVertex(from + ExpendSuffix_2), getVertex(to + ExpendSuffix_1), Capacity, sourcePort));
+					edgesToAdd.add(new Edge(getVertex(from + ExpendSuffix_2), getVertex(to + ExpendSuffix_1), Capacity, sourcePort,destPort));
 				}
 
 				edgesToRemove.add(e);
@@ -633,7 +637,7 @@ public class DirectGraph
 				addVertex( vertexName + ExpendSuffix_1);
 				addVertex( vertexName + ExpendSuffix_2);
 
-				addEdge( vertexName + ExpendSuffix_1, vertexName + ExpendSuffix_2, Capacity, (short)0);
+				addEdge( vertexName + ExpendSuffix_1, vertexName + ExpendSuffix_2, Capacity, (short)0,(short)0);
 			}
 		}
 	}

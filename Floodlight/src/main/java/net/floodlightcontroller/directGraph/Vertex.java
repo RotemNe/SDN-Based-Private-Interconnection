@@ -90,7 +90,7 @@ public class Vertex implements Comparable<Vertex>
 	 *          the edge cost
 	 */
 	public void addOutgoingEdge(Vertex to, int cost) {
-		Edge out = new Edge(this, to, cost,(short)0);
+		Edge out = new Edge(this, to, cost,(short)0,(short)0);
 		outgoingEdges.add(out);
 	}
 
@@ -103,7 +103,7 @@ public class Vertex implements Comparable<Vertex>
 	 *          the edge cost
 	 */
 	public void addIncomingEdge(Vertex from, int cost) {
-		Edge out = new Edge(this, from, cost,(short)0);
+		Edge out = new Edge(this, from, cost,(short)0,(short)0);
 		incomingEdges.add(out);
 	}
 
