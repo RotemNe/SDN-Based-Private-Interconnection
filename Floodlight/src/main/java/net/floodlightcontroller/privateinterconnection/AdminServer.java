@@ -91,16 +91,12 @@ public class AdminServer implements Runnable
 					outMsg += vlanNum + "-" + vlanToPrivateIPv4.get(vlanNum)+ "\n";
 				}
 				
-				//outMsg += "Thank you for connecting to " + server.getLocalSocketAddress() +", Goodbye! \n";
+				
 				int msgLength = outMsg.length();
-				if(mincut.equals("0"))
-				{
-					msgLength+=1;
-				}
 				out.writeInt(msgLength);
-				out.writeUTF(outMsg);
+				out.write(outMsg.getBytes());
 				System.out.println("LENGTH: "+outMsg.length());
-				System.out.println("DATAAAA: "+outMsg);
+				System.out.println("DATA: "+outMsg);
 				csocket.close();
 			    PrivateInterConnectionMng.clearData();
 				return;

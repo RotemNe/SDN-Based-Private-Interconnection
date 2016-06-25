@@ -5,6 +5,7 @@ import sys
 import struct
 import threading
 from secretsharing import PlaintextToHexSecretSharer
+from ss import threshold_scheme as SS
 
 """
  Subclass of Thread class, overrides the father method run ().
@@ -32,7 +33,6 @@ class sendSharesThread(threading.Thread):
                self.clientSocket.sendall(msg)
                print ('Send Share To Dest from ip '+ self.ipSendFrom +' ' + self.shares[0] +'\n')
 
-
 """
     Represent client side that want to establish private interconnection 
 """
@@ -55,7 +55,6 @@ class ClientSender():
         self.fileSize = None
         self.is_connected = False
 
-
     def set_user_input(self,numShares,threshold,chunk):
         self.num_shares = numShares
         self.threshold = threshold
@@ -63,6 +62,7 @@ class ClientSender():
             self.chunk_size = chunk
         else:
             self.chunk_size = 20
+
 
 """
     Validate ration of n,k by t value that returns from network administrator.
@@ -86,11 +86,12 @@ class ClientSender():
     triggering creation of private interconnection through network switches.
     Get from network administrator : [t, <VlanId ,Virutal IP>] 
 """
-    def request_private_interconnection_from_admin(self):
+   def request_private_interconnection_from_admin(self):
 
         data = ''
+
         port = 12345
-        admin_ip = '192.168.1.5'
+        admin_ip ='192.168.1.7'
         pingCmd = "ping -c1 "+ self.dest_ip
         self.min_cut = 0
         output = commands.getoutput(pingCmd)
@@ -106,15 +107,20 @@ class ClientSender():
         msglen = struct.unpack('>I', raw_msglen)[0]
         data = self._recvall(s,msglen)
 
+        print data
         lines = data.split('\n')
         if lines[1].split('-')[1] is not None :
             self.min_cut = int(lines[1].split('-')[1])
 
         for line in lines[2:]:
+
             split_vlan_ip = line.split('-')
-            if len(split_vlan_ip) > 0:
-               self. vlan_to_ip[split_vlan_ip[0]] = split_vlan_ip[1]
+            if len(split_vlan_ip) > 1:
+                self. vlan_to_ip[split_vlan_ip[0]] = split_vlan_ip[1]
         s.close
+
+        print self.min_cut
+        print self.vlan_to_ip
 
         return (self.min_cut, self.vlan_to_ip)
 
@@ -138,13 +144,13 @@ class ClientSender():
     creating n shares from each chunk of data and shares sending by the use of threads.
 """
     def send_data(self):
+        #--
+        self._distribute_shares_to_ranges()
 
         res =  self._config_connections(self.is_connected)
         if res is False:
             self.is_connected = False
             return False
-
-        self._distribute_shares_to_ranges()
 
         if self.data_type is "Text":
             self._send_text()
@@ -171,23 +177,30 @@ class ClientSender():
                 break
 
         cmd = "ifconfig " + self.interface +" | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}'"
+
         actualIp =  commands.getoutput(cmd)
 
         if isConnected == False:
             for vlan_id in self.vlan_to_ip:
-                connectedSocket = self._create_socket_connection(self.vlan_to_ip[vlan_id],self.dest_ip,str(self.threshold),actualIp,str(self.num_shares))
+
+                connectedSocket = self._create_socket_connection(self.vlan_to_ip[vlan_id],self.dest_ip,str(self.threshold),actualIp,str(self.num_shares),vlan_id)
                 if connectedSocket is None:
                     return False
                 self.vlanToSocket[vlan_id] = connectedSocket
         else:
             for vlan_id in self.vlanToSocket:
-                self._init_new_send(self.vlanToSocket[vlan_id], actualIp)
+                self._init_new_send(self.vlanToSocket[vlan_id], actualIp,vlan_id)
 
         return True
 
-    def _init_new_send(self,connectedSocket,actual_ip):
+     def _init_new_send(self,connectedSocket,actual_ip,vlan_id):
 
-        helloMsg = "Hello-" +actual_ip +"-" + str(self.threshold) +"-"+str(self.num_shares)+"-"+self.data_type
+        #--
+        startRange = self.vlan_to_range[vlan_id][0]
+        endRange = self.vlan_to_range[vlan_id][1]
+        shares_range = str(endRange-startRange)
+        #--
+        helloMsg = "Hello-" +actual_ip +"-" + str(self.threshold) +"-"+str(self.num_shares)+"-"+shares_range+"-"+self.data_type
         if self.data_type is "File":
             helloMsg += "-"+self.fileName +"-"+str(self.fileSize)
 
@@ -196,7 +209,7 @@ class ClientSender():
         print(helloMsg + '\n')
 
 
-    def _create_socket_connection(self,srcIp,destIp,threshold,actual_ip,numShares):
+    def _create_socket_connection(self,srcIp,destIp,threshold,actual_ip,numShares,vlan_id):
         destPort = 12222
         clientSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         clientSocket.bind((srcIp,0))
@@ -204,7 +217,7 @@ class ClientSender():
         if res:
             return None
 
-        self._init_new_send(clientSocket,actual_ip)
+        self._init_new_send(clientSocket,actual_ip,vlan_id)
         return clientSocket
 
 
@@ -228,12 +241,18 @@ class ClientSender():
 """
     def _send_text(self):
         secret_chunks = [self.secret[i:i+self.chunk_size] for i in xrange(0,len(self.secret),self.chunk_size)]
-
+        #--
+        all_shares = {}
+        index = 0
+        #--
         for secretStr in secret_chunks:
           if not secretStr:
             break
           shares = self._create_shares(str(secretStr),self.threshold,self.num_shares)
-          self._send_shares_by_threads(shares)
+          all_shares[index] = shares
+          index += 1
+
+        self._send_shares_by_threads_1(all_shares)
 
 """
     Method that responsible to distribute the n shares to ranges such 
@@ -268,14 +287,39 @@ class ClientSender():
         for vlan_id in self.vlan_to_ip:
             startRange = self.vlan_to_range[vlan_id][0]
             endRange = self.vlan_to_range[vlan_id][1]
+            print " start - end"+ str(startRange) + str(endRange)
 
             threadShares = shares[startRange:endRange]
+            print threadShares
             newSendThread = sendSharesThread(self.vlanToSocket[vlan_id],threadShares,endRange-startRange ,self.vlan_to_ip[vlan_id])
             newSendThread.start()
             threads.append(newSendThread)
 
         for t in threads:
-              t.join()
+            t.join()
+
+    def _send_shares_by_threads_1(self,all_shares):
+
+        threads = []
+        index = 0
+
+        for vlan_id in self.vlan_to_ip:
+            startRange = self.vlan_to_range[vlan_id][0]
+            endRange = self.vlan_to_range[vlan_id][1]
+            print " start - end"+ str(startRange) + str(endRange)
+
+            interface_shares = []
+            for shares in all_shares:
+                chunk_shares =all_shares[shares]
+                interface_shares += chunk_shares[startRange:endRange]
+
+            print interface_shares
+            newSendThread = sendSharesThread(self.vlanToSocket[vlan_id],interface_shares, len(interface_shares) ,self.vlan_to_ip[vlan_id])
+            newSendThread.start()
+            threads.append(newSendThread)
+
+        for t in threads:
+            t.join()
 
 """
     1.Open the file for reading.
@@ -289,19 +333,25 @@ class ClientSender():
 """
     def _send_file(self):
 
-        f = open(self.file_path,'r')
+        #--
+        all_shares = {}
+        index = 0
+        #--     
+
+        f = open(self.file_path,'rb')
         while True:
           secretStr = f.read(self.chunk_size)
           if not secretStr:
             break
           shares = self._create_shares(secretStr,self.threshold,self.num_shares)
+          all_shares[index] = shares
+          index += 1
 
-          self._send_shares_by_threads(shares)
-
+        self._send_shares_by_threads_1(all_shares)
         f.close()
 
     def _create_shares(self,secret_string, share_threshold, num_shares):
-        shares = PlaintextToHexSecretSharer.split_secret(secret_string, share_threshold, num_shares)
+        shares = SS.dist_shares(share_threshold,num_shares,secret_string)
         return shares
 
     def _get_my_ip(self):

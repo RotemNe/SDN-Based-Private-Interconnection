@@ -1,3 +1,4 @@
+
 #!/usr/bin/python
 import socket
 import sys
@@ -9,6 +10,7 @@ from Tkinter import *
 from time import sleep
 import tkMessageBox
 from secretsharing import PlaintextToHexSecretSharer
+from ss import threshold_scheme as SS
 
 """
 - Manage & creates SharesData instances.
@@ -52,7 +54,7 @@ class SharesMng():
     def _handle_share(self,data,sender_ip):
         if self.privateIPv4_to_actual_ip.has_key(sender_ip):
             actual_ip = self.privateIPv4_to_actual_ip[sender_ip]
-            self.shares_data_dict[actual_ip].add_share(data)
+            self.shares_data_dict[actual_ip].add_share(data,sender_ip)
 
     def _handle_hello(self,data,sender_ip):
         parsed_hello = data.split('-')
@@ -60,24 +62,25 @@ class SharesMng():
         private_ip = sender_ip
         threshold = parsed_hello[2]
         shares_num = parsed_hello[3]
-        data_type = parsed_hello[4]
+        shares_range = parsed_hello[4]
+        data_type = parsed_hello[5]
         file_size = None
         file_name = None
 
         if data_type == "File":
-            file_size = parsed_hello[6]
-            file_name = parsed_hello[5]
+            file_size = parsed_hello[7]
+            file_name = parsed_hello[6]
 
         # Update private IPv4  recived ip belongs to actual ip
         self.privateIPv4_to_actual_ip[sender_ip] = actual_ip
 
         if self.shares_data_dict.has_key(actual_ip):
-            self.shares_data_dict[actual_ip].update(sender_ip,data_type,file_size,file_name,threshold,shares_num)
+            self.shares_data_dict[actual_ip].update(sender_ip,data_type,file_size,file_name,threshold,shares_num,shares_range)
             sharesDataStr = "Shares Number: " + shares_num + "\nThreshold:  " + threshold
             self.refSharesData.set(sharesDataStr)
 
         else:
-            shares_data = SharesData(actual_ip, threshold,sender_ip,shares_num,self.refText,self.refFileProg)
+            shares_data = SharesData(actual_ip, threshold,sender_ip,shares_num,self.refText,self.refFileProg,shares_range)
             self.shares_data_dict[actual_ip] = shares_data
             shares_data.data_type = data_type
             shares_data.file_name = file_name
@@ -93,6 +96,7 @@ class SharesMng():
             self.shares_data_dict[actual_ip].create_file()
             self.refFileProg["value"] = 0
             self.refFileProg["maximum"] = int(file_size)
+            self.refFileProg["length"] = int(file_size)
 
 """
 -  Maintain shares from many virtual/Private IPv4 address which associated with one actual IP address.
@@ -101,7 +105,7 @@ class SharesMng():
 
 """
 class SharesData():
-    def __init__(self,actual_ip,threshold,private_ip,shares_num,refText,refFileProg):
+    def __init__(self,actual_ip,threshold,private_ip,shares_num,refText,refFileProg,shares_range):
       self.actual_ip = actual_ip
       self.threshold = threshold
       self.shares_list = []
@@ -118,17 +122,31 @@ class SharesData():
       self.cur_file_size = 0
       self.refFileData = None
       self.refFileProg = refFileProg
+      self.ip_to_shares_range = {}
+      self.ip_to_shares = {}
+      self.ip_to_cur_chunk = {}
+      self.cur_chunk_to_recover = 0
+      self.init_private_ip_data(private_ip,shares_range)
+
+    def init_private_ip_data(self,private_ip,shares_range):
+
+      self.ip_to_shares_range[str(private_ip)] = shares_range
+      self.ip_to_shares[str(private_ip)] = {}
+      self.ip_to_cur_chunk[str(private_ip)] = 0
+      self.cur_chunk_to_recover = 0
+
 
     def create_file(self):
-        self.file = open("filesReceived/" + self.file_name, "w")
+        self.file = open("filesReceived/" + self.file_name, "wb")
         self.cur_file_size = 0
         self.refFileData.set("Reciving File ... ")
 
     def _clear_file(self):
         self.file.close()
-        fileDataStr = "You Recived A File  \n FileName: "+ str(self.file_name) + "\n File Size: " + str(self.file_size) + "\n File Path: " +"filesReceived/" +self.file_name
+        fileDataStr = "You Recived A File  \n FileName: "+ str(self.file_name) + "\n File Size: " + str(self.cur_file_size) + "\n File Path: " +"filesReceived/" +self.file_name
         tkMessageBox.showinfo(" File Recived !",fileDataStr)
         self.refFileData.set(fileDataStr)
+        print "Finish File ->  fileName "+ str(self.file_name)+"fileSize - curFileSize" +  str(self.cur_file_size)+str(self.file_size)
         self.file = None
         self.cur_file_size = 0
         self.file_size = None
@@ -137,14 +155,17 @@ class SharesData():
 """
 Updates internal data with given data.
 """
-    def update(self,sender_ip,data_type,file_size,file_name,threshold,shares_num):
+    def update(self,sender_ip,data_type,file_size,file_name,threshold,shares_num,shares_range):
       if sender_ip not in self.private_ip_list:
           self.private_ip_list.append(sender_ip)
+
       self.data_type = data_type
       self.file_name = file_name
       self.file_size = file_size
       self.shares_num = shares_num
       self.threshold = threshold
+      self.shares_range = shares_range
+      self.init_private_ip_data(sender_ip,shares_range)
 """
   - Removes sender_IP from internal list about virtual IPv4 address.
   - Returns True when internal list about virtual IPv4 address is empty, otherwise False.
@@ -157,38 +178,83 @@ Updates internal data with given data.
         self.refFileData.set("")
         return True
 
-"""
- - Add given share to internal shares_list.
- - Recovers data from shares when internal shares_list contains threshold number of shares.
- - Clear internal data about shares_list and shares track when internal shares_list contains shares as number of shares number n.
 
-"""
-    def add_share(self,share):
+    def _add_share(self,share,sender_ip):
 
-      self.shares_list.append(share)
-      self.cur_shares +=1
-      if self.cur_shares == int(self.threshold):
-          recover_data =  PlaintextToHexSecretSharer.recover_secret(self.shares_list)
+      shares_range = self.ip_to_shares_range[str(sender_ip)]
+      sender_ip_cur_chunk = int(self.ip_to_cur_chunk[str(sender_ip)])
+      self._create_new_chunk_to_ip(sender_ip,sender_ip_cur_chunk)
+      shares_list =self.ip_to_shares[str(sender_ip)][sender_ip_cur_chunk]
+
+
+      if len(shares_list) < int(shares_range):
+          shares_list.append(share)
+          if len(shares_list) == int(shares_range):
+              self.ip_to_cur_chunk[str(sender_ip)] = int(sender_ip_cur_chunk) + 1
+
+      else:
+          self.ip_to_cur_chunk[str(sender_ip)] = int(sender_ip_cur_chunk) + 1
+          sender_ip_cur_chunk = self.ip_to_cur_chunk[str(sender_ip)]
+          self._create_new_chunk_to_ip(sender_ip,sender_ip_cur_chunk)
+          shares_list = self.ip_to_shares[str(sender_ip)][sender_ip_cur_chunk]
+          shares_list.append(share)
+
+      ip_to_shares_to_recover = {}
+      cur_shares = 0
+      recover_index = self.cur_chunk_to_recover
+      for ip in self.ip_to_shares:
+          if self.ip_to_shares[ip].has_key(int(recover_index)):
+              ip_to_shares_to_recover[ip] = self.ip_to_shares[ip][recover_index]
+              cur_shares += len(ip_to_shares_to_recover[ip])
+
+
+      if cur_shares == int(self.threshold):
+          shares = []
+          for ip in ip_to_shares_to_recover:
+              shares += ip_to_shares_to_recover[ip]
+
+          recover_data = SS.recover_secret(shares)
+
+          print recover_data
+          self.cur_chunk_to_recover += 1
+          temp = self.cur_chunk_to_recover - 1
+          for ip in self.ip_to_shares:
+              cur_shares_range = self.ip_to_shares_range[ip]
+               #--
+              if self.ip_to_shares[ip].has_key(int(temp)):
+              #--
+                  cur_list = self.ip_to_shares[ip][int(temp)]
+                  if len(cur_list) == int(cur_shares_range):
+                      self.ip_to_shares[ip][int(temp)] = []
+
           if self.data_type == "Text":
               self.refText.configure(state = "normal")
               self.refText.insert(END , recover_data)
               self.refText.configure(state = "disable")
               self.data_recovered = recover_data
 
-
           elif self.data_type == "File":
               self.file.write(recover_data)
               self.file.flush()
               self.cur_file_size = os.fstat(self.file.fileno()).st_size
-              self.refFileProg["value"]+=0
+              self.refFileProg["value"] = 0
               self.refFileProg["value"]+=self.cur_file_size
-              if (self.cur_file_size == int(self.file_size))or(self.cur_file_size == int(self.file_size)-1):
+              if (self.cur_file_size == int(self.file_size)):
                   self._clear_file()
 
+    def _create_new_chunk_to_ip(self,sender_ip,sender_ip_cur_chunk):
+        if self.ip_to_shares[str(sender_ip)].has_key(int(sender_ip_cur_chunk)) == False:
+            self.ip_to_shares[str(sender_ip)][int(sender_ip_cur_chunk)] = []
 
-      if int(self.shares_num) == self.cur_shares:
-         self._clear_shares_data()
+"""
+ - Add given share to internal shares_list.
+ - Recovers data from shares when internal shares_list contains threshold number of shares.
+ - Clear internal data about shares_list and shares track when internal shares_list contains shares as number of shares number n.
 
+"""
+    def add_share(self,share,sender_ip):
+
+      self._add_share(share,sender_ip)
 
     def _clear_shares_data(self):
       self.shares_list = []
@@ -281,7 +347,7 @@ Method opens TCP server socket and monitor sockets by use of select module:
                         self.inputs.remove(sock)
                         sock.close
                     break
-                # handle packets received and transfer handling for sharesMng instance
+
                 else:
                     raw_msglen = self._recvall(s,4)
                     if raw_msglen:
@@ -289,9 +355,9 @@ Method opens TCP server socket and monitor sockets by use of select module:
                         data = self._recvall(s, msglen)
                         peerIp= s.getpeername()[0]
 
+                        print data
                         curConIp = self.sharesMng.handle(data, peerIp)
 
-                    #case of socket closed by peer side.
                     else:
                          self.inputs.remove(s)
                          peerIp = s.getpeername()[0]
@@ -303,6 +369,7 @@ Method opens TCP server socket and monitor sockets by use of select module:
                 self.inputs.remove(s)
                 s.close()
             if self.isRequestToClose:
+                break
 
 
         self.close_all()
@@ -314,4 +381,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
